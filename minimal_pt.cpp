@@ -5,6 +5,7 @@
 #include <stdio.h>  // 
 #include <iostream>
 #include <fstream>
+#include <memory>
 #include <glm/glm.hpp>
 
 using Vec = glm::dvec3; 
@@ -53,8 +54,14 @@ struct Camera {
 
 enum Material { DIFF, SPEC, REFR, LIGHT };  // material types, used in radiance()
 
+struct Hit {
+  double t;
+  Vec p, n, e, c;
+  Material m_mat;
+};
+
 struct Hitable {
-  virtual double intersect(const Ray &ray) const = 0; // returns distance, 0 if no hit
+  virtual Hit intersect(const Ray &ray) const = 0; // returns hit info, t=0 if no hit
 };
 
 struct Sphere : public Hitable {
@@ -65,26 +72,59 @@ struct Sphere : public Hitable {
   Sphere(double r, Vec p, Vec e, Vec c, Material mat):
     m_r(r), m_p(p), m_e(e), m_c(c), m_mat(mat) {}
 
-  double intersect(const Ray &ray) const { // returns distance, 0 if no hit
+  Hit intersect(const Ray &ray) const { // returns hit info, t=0 if no hit
     // Ray-sphere intersection: solve quadratic for t along ray direction.
     Vec op = m_p - ray.m_o; // vector from ray origin to sphere center
     double t, eps = 1e-4;
     double b = glm::dot(op, ray.m_v);
     double det = b * b - glm::dot(op, op) + m_r * m_r;
     // If discriminant is negative, the ray misses the sphere.
-    if (det < 0) return 0;
+    if (det < 0) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
     det = sqrt(det);
     // Return nearest positive hit; 0 means no hit.
-    return (t = b - det) > eps ? t : ((t = b + det) > eps ? t : 0);
+    t = (t = b - det) > eps ? t : ((t = b + det) > eps ? t : 0);
+    if (t == 0) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    Vec p = ray.m_o + ray.m_v * t;
+    Vec n = glm::normalize(p - m_p);
+    return Hit{t, p, n, m_e, m_c, m_mat};
   }
 };
 
-std::vector<Sphere> create_spheres(int count) {
-  std::vector<Sphere> result;
+struct Quad : public Hitable {
+  Vec m_v0, m_v1, m_v2, m_v3; // corners in CCW order
+  Vec m_e, m_c;           // emission, color
+  Material m_mat;     // reflection type (DIFFuse, SPECular, REFRactive)
+
+  Quad(Vec V0, Vec V1, Vec V2, Vec V3, Vec e, Vec c, Material mat) :
+    m_v0(V0), m_v1(V1), m_v2(V2), m_v3(V3), m_e(e), m_c(c), m_mat(mat) {}
+
+  Hit intersect(const Ray &ray) const {
+    Vec n = glm::normalize(glm::cross(m_v1 - m_v0, m_v2 - m_v0));
+    double denom = glm::dot(n, ray.m_v);
+    if (fabs(denom) < 1e-6) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    double t = glm::dot(m_v0 - ray.m_o, n) / denom;
+    if (t <= 1e-4) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    Vec p = ray.m_o + ray.m_v * t;
+
+    // Inside-out test for CCW quad.
+    Vec c0 = glm::cross(m_v1 - m_v0, p - m_v0);
+    Vec c1 = glm::cross(m_v2 - m_v1, p - m_v1);
+    Vec c2 = glm::cross(m_v3 - m_v2, p - m_v2);
+    Vec c3 = glm::cross(m_v0 - m_v3, p - m_v3);
+    if (glm::dot(n, c0) < 0 || glm::dot(n, c1) < 0 || glm::dot(n, c2) < 0 || glm::dot(n, c3) < 0)
+      return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+
+    return Hit{t, p, n, m_e, m_c, m_mat};
+  }
+};
+
+std::vector<std::unique_ptr<Hitable>> create_spheres(int count) {
+  std::vector<std::unique_ptr<Hitable>> result;
 
   // Ground and a simple overhead light.
-  result.emplace_back(10000.0, Vec(0, -10000, 0), Vec(),        Vec(0.3, 0.80, 0.25), DIFF);
-  result.emplace_back(    2.0, Vec( 10,    10, 0), Vec(12, 12, 12), Vec(),            LIGHT);
+  result.emplace_back(std::make_unique<Sphere>(10000.0, Vec(0, -10000, 0), Vec(), Vec(0.3, 0.90, 0.25), DIFF));
+  result.emplace_back(std::make_unique<Sphere>(1.0, Vec(10, 10, 0), Vec(5, 5, 5), Vec(), LIGHT));
+  result.emplace_back(std::make_unique<Sphere>(0.4, Vec(0, 0.4, -5), Vec(), Vec(0.8, 0.8, 0.8), DIFF));
 
   for (int i = 0; i < count; ++i) {
     double x = (rand01() * 2.0 - 1.0) * 5.0;
@@ -94,34 +134,34 @@ std::vector<Sphere> create_spheres(int count) {
     double radius = (0.15 + t * 1.35) * sizeJitter;
     Vec pos(x, radius, z);
     Vec color(0.2 + rand01() * 0.8, 0.2 + rand01() * 0.8, 0.2 + rand01() * 0.8);
-    result.emplace_back(radius, pos, Vec(), color, DIFF);
+    result.emplace_back(std::make_unique<Sphere>(radius, pos, Vec(), color, DIFF));
   }
 
   return result;
 }
 
-std::vector<Sphere> spheres;
+std::vector<std::unique_ptr<Hitable>> objects;
 
 Vec radiance(const Ray &r, int depth){
-  double t = 0;
-  const Sphere *hit = nullptr;
-  for (const Sphere &s : spheres) {
-    double d = s.intersect(r);
-    if (d && (!hit || d < t)) { t = d; hit = &s; }
+  Hit best;
+  best.t = 0;
+  bool found = false;
+  for (const std::unique_ptr<Hitable> &obj : objects) {
+    Hit h = obj->intersect(r);
+    if (h.t > 0 && (!found || h.t < best.t)) { best = h; found = true; }
   }
-  if (!hit) {
+  if (!found) {
     // Simple sky gradient based on ray direction.
     double tSky = 0.5 * (r.m_v.y + 1.0);
     tSky = tSky * tSky;
-    return 0.5*Vec(1.0, 1.0, 1.0) * (1.0 - tSky) + Vec(0.2, 0.4, 1.0) * tSky;
+    return Vec(1.0, 1.0, 1.0) * (1.0 - tSky) + Vec(0.2, 0.4, 1.0) * tSky;
   }
 
-  const Sphere &obj = *hit;
-  Vec x = r.m_o + r.m_v * t;
-  Vec n = glm::normalize(x - obj.m_p);
+  Vec x = best.p;
+  Vec n = best.n;
   Vec nl = glm::dot(n, r.m_v) < 0 ? n : -n;
 
-  if (depth >= 20 || obj.m_mat == LIGHT) return obj.m_e;
+  if (depth >= 20 || best.m_mat == LIGHT) return best.e;
 
   // Cosine-weighted hemisphere sampling around the normal.
   double r1 = 2.0 * M_PI * rand01();
@@ -132,13 +172,13 @@ Vec radiance(const Ray &r, int depth){
   Vec v = glm::cross(w, u);
   Vec d = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2));
 
-  return obj.m_e + obj.m_c * radiance(Ray(x, d), depth + 1);
+  return best.e + best.c * radiance(Ray(x, d), depth + 1);
 }
 
 
 int main(int argc, char *argv[]){
-  int w = 800, h = w * 9. / 16., samples = argc==2 ? atoi(argv[1]) : 256; // # samples
-  spheres = create_spheres(10);
+  int w = 800, h = (int)(w * 9. / 16.), samples = argc==2 ? atoi(argv[1]) : 256; // # samples
+  objects = create_spheres(10);
   std::vector<Vec> colors;
   colors.resize(w*h);
   Camera cam(Vec(0,1,0), Vec(0,0,-1), Vec(0,1,0), w, h);
