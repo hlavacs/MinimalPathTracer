@@ -16,13 +16,27 @@ inline double rand01(){
   return dist(rng);
 }
 
+inline double halton(int index, int base) {
+  double f = 1.0;
+  double r = 0.0;
+  int i = index;
+  while (i > 0) {
+    f /= base;
+    r += f * (i % base);
+    i /= base;
+  }
+  return r;
+}
+
 inline double clamp(double x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 inline Vec clamp(const Vec &v) { return Vec(clamp(v.x), clamp(v.y), clamp(v.z)); }
 
 struct Ray { 
   Vec m_o, m_v;
+  double m_tmin = 1e-3;
+  double m_tmax = 1e10;
   Ray() = default;
-  Ray(Vec o, Vec v) : m_o(o), m_v(v) {} 
+  Ray(Vec o, Vec v, double tmin = 1e-4, double tmax = 1e10) : m_o(o), m_v(v), m_tmin(tmin), m_tmax(tmax) {} 
 };
 
 struct Camera {
@@ -55,9 +69,9 @@ struct Camera {
 enum Material { DIFF, SPEC, REFR, LIGHT };  // material types, used in radiance()
 
 struct Hit {
-  double t;
-  Vec p, n, e, c;
-  Material m_mat;
+  double t;       // distance along ray to hit
+  Vec p, n, e, c; // position, normal, emission, color
+  Material m_mat; // material type
 };
 
 struct Hitable {
@@ -90,41 +104,98 @@ struct Sphere : public Hitable {
   }
 };
 
-struct Quad : public Hitable {
-  Vec m_v0, m_v1, m_v2, m_v3; // corners in CCW order
-  Vec m_e, m_c;           // emission, color
-  Material m_mat;     // reflection type (DIFFuse, SPECular, REFRactive)
+struct Quad_XY : public Hitable {
+  double m_x0, m_x1, m_y0, m_y1;  // extents along X and Y
+  double d;  // distance from origin along Z axis
+  Vec m_e, m_c;   // emission, color
+  Material m_mat; // reflection type (DIFFuse, SPECular, REFRactive
+  bool m_flip;
 
-  Quad(Vec V0, Vec V1, Vec V2, Vec V3, Vec e, Vec c, Material mat) :
-    m_v0(V0), m_v1(V1), m_v2(V2), m_v3(V3), m_e(e), m_c(c), m_mat(mat) {}
+  Quad_XY(double x0, double x1, double y0, double y1, double dist, Vec e, Vec c, Material mat, bool flip=false):
+    m_x0(x0), m_x1(x1), m_y0(y0), m_y1(y1), d(dist), m_e(e), m_c(c), m_mat(mat), m_flip(flip) {}
 
   Hit intersect(const Ray &ray) const {
-    Vec n = glm::normalize(glm::cross(m_v1 - m_v0, m_v2 - m_v0));
-    double denom = glm::dot(n, ray.m_v);
-    if (fabs(denom) < 1e-6) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
-    double t = glm::dot(m_v0 - ray.m_o, n) / denom;
-    if (t <= 1e-4) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    double t = (d - ray.m_o.z) / ray.m_v.z; // solve for intersection with plane at z=d
+    if (t <= 0 || t > 1e10) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+
     Vec p = ray.m_o + ray.m_v * t;
+    if (p.x < m_x0 || p.x > m_x1 || p.y < m_y0 || p.y > m_y1) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
 
-    // Inside-out test for CCW quad.
-    Vec c0 = glm::cross(m_v1 - m_v0, p - m_v0);
-    Vec c1 = glm::cross(m_v2 - m_v1, p - m_v1);
-    Vec c2 = glm::cross(m_v3 - m_v2, p - m_v2);
-    Vec c3 = glm::cross(m_v0 - m_v3, p - m_v3);
-    if (glm::dot(n, c0) < 0 || glm::dot(n, c1) < 0 || glm::dot(n, c2) < 0 || glm::dot(n, c3) < 0)
-      return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
-
+    Vec n = m_flip ? Vec(0, 0, -1) : Vec(0, 0, 1);
     return Hit{t, p, n, m_e, m_c, m_mat};
   }
 };
 
-std::vector<std::unique_ptr<Hitable>> create_spheres(int count) {
-  std::vector<std::unique_ptr<Hitable>> result;
+struct Quad_XZ : public Hitable {
+  double m_x0, m_x1, m_z0, m_z1;  // extents along X and Z
+  double d;  // distance from origin along Y axis
+  Vec m_e, m_c;   // emission, color
+  Material m_mat; // reflection type (DIFFuse, SPECular, REFRactive
+  bool m_flip;
 
+  Quad_XZ(double x0, double x1, double z0, double z1, double dist, Vec e, Vec c, Material mat, bool flip=false):
+    m_x0(x0), m_x1(x1), m_z0(z0), m_z1(z1), d(dist), m_e(e), m_c(c), m_mat(mat), m_flip(flip) {}
+
+  Hit intersect(const Ray &ray) const {
+    double t = (d - ray.m_o.y) / ray.m_v.y; // solve for intersection with plane at y=d
+    if (t <= 0 || t > 1e10) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+
+    Vec p = ray.m_o + ray.m_v * t;
+    if (p.x < m_x0 || p.x > m_x1 || p.z < m_z0 || p.z > m_z1) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+
+    Vec n = m_flip ? Vec(0, -1, 0) : Vec(0, 1, 0);
+    return Hit{t, p, n, m_e, m_c, m_mat};
+  }
+};
+
+struct Quad_YZ : public Hitable {
+  double m_y0, m_y1, m_z0, m_z1;  // extents along Y and Z
+  double d;  // distance from origin along X axis
+  Vec m_e, m_c;   // emission, color
+  Material m_mat; // reflection type (DIFFuse, SPECular, REFRactive
+  bool m_flip;
+
+  Quad_YZ(double y0, double y1, double z0, double z1, double dist, Vec e, Vec c, Material mat, bool flip=false):
+    m_y0(y0), m_y1(y1), m_z0(z0), m_z1(z1), d(dist), m_e(e), m_c(c), m_mat(mat), m_flip(flip) {}
+
+  Hit intersect(const Ray &ray) const {
+    double t = (d - ray.m_o.x) / ray.m_v.x; // solve for intersection with plane at x=d
+    if (t <= 0 || t > 1e10) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+
+    Vec p = ray.m_o + ray.m_v * t;
+    if (p.y < m_y0 || p.y > m_y1 || p.z < m_z0 || p.z > m_z1) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+
+    Vec n = m_flip ? Vec(-1, 0, 0) : Vec(1, 0, 0);
+    return Hit{t, p, n, m_e, m_c, m_mat};
+  }
+};
+
+auto create_cornell(int count, auto &objects) {
+  const double zShift = -6.5;
+  const double xShift = -1.0;
+
+  objects.emplace_back(std::make_unique<Sphere>(10000.0, Vec(0, -10000, 0), Vec(), Vec(0.3, 0.90, 0.25), DIFF));
+
+  // Cornell box walls
+  objects.push_back(std::make_unique<Quad_YZ>(0, 2, zShift + 0, zShift + 2, xShift + 0, Vec(0), Vec(0.75, 0.25, 0.25), DIFF, false)); // Left wall (faces +X)
+  objects.push_back(std::make_unique<Quad_YZ>(0, 2, zShift + 0, zShift + 2, xShift + 2, Vec(0), Vec(0.25, 0.25, 0.75), DIFF, true));  // Right wall (faces -X)
+  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0, xShift + 2, zShift + 0, zShift + 2, 0, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, false)); // Floor (faces +Y)
+  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0, xShift + 2, zShift + 0, zShift + 2, 2, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, true));  // Ceiling (faces -Y)
+  objects.push_back(std::make_unique<Quad_XY>(xShift + 0, xShift + 2, 0, 2, zShift, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, true)); // Back wall (faces -Z)
+  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0.8, xShift + 1.2, zShift + 0.8, zShift + 1.2, 1.99, Vec(5, 5, 5), Vec(0), LIGHT, true));  // Ceiling (faces -Y)
+
+  // Two spheres resting on the floor inside the Cornell box.
+  objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.9, 0.9, 0.9), DIFF));
+  objects.push_back(std::make_unique<Sphere>(0.5, Vec(xShift + 1.35, 0.5, zShift + 1.4), Vec(), Vec(0.9, 0.8, 0.2), DIFF));
+
+  return 3.0 / 3.3; // aspect ratio
+}
+
+auto create_spheres(int count, auto &objects) {
   // Ground and a simple overhead light.
-  result.emplace_back(std::make_unique<Sphere>(10000.0, Vec(0, -10000, 0), Vec(), Vec(0.3, 0.90, 0.25), DIFF));
-  result.emplace_back(std::make_unique<Sphere>(1.0, Vec(10, 10, 0), Vec(5, 5, 5), Vec(), LIGHT));
-  result.emplace_back(std::make_unique<Sphere>(0.4, Vec(0, 0.4, -5), Vec(), Vec(0.8, 0.8, 0.8), DIFF));
+  objects.emplace_back(std::make_unique<Sphere>(10000.0, Vec(0, -10000, 0), Vec(), Vec(0.3, 0.90, 0.25), DIFF));
+  objects.emplace_back(std::make_unique<Sphere>(1.0, Vec(10, 10, 0), Vec(5, 5, 5), Vec(), LIGHT));
+  objects.emplace_back(std::make_unique<Sphere>(0.4, Vec(0, 0.4, -5), Vec(), Vec(0.8, 0.8, 0.8), DIFF));
 
   for (int i = 0; i < count; ++i) {
     double x = (rand01() * 2.0 - 1.0) * 5.0;
@@ -134,34 +205,45 @@ std::vector<std::unique_ptr<Hitable>> create_spheres(int count) {
     double radius = (0.15 + t * 1.35) * sizeJitter;
     Vec pos(x, radius, z);
     Vec color(0.2 + rand01() * 0.8, 0.2 + rand01() * 0.8, 0.2 + rand01() * 0.8);
-    result.emplace_back(std::make_unique<Sphere>(radius, pos, Vec(), color, DIFF));
+    objects.emplace_back(std::make_unique<Sphere>(radius, pos, Vec(), color, DIFF));
   }
 
-  return result;
+  double aspect = 16.0 / 9.0;
+  return aspect;
 }
 
-std::vector<std::unique_ptr<Hitable>> objects;
+Vec radiance(const auto &objects, const Ray &r, int depth, Vec throughput){
 
-Vec radiance(const Ray &r, int depth){
+  //russian roulette
+  double p = glm::max(throughput.x, glm::max(throughput.y, throughput.z));
+  if (depth > 4) {
+    if (rand01() < p) {
+      throughput = throughput * (1.0 / p);
+    } else {
+      return Vec(0);
+    }
+  }
+
   Hit best;
   best.t = 0;
   bool found = false;
   for (const std::unique_ptr<Hitable> &obj : objects) {
     Hit h = obj->intersect(r);
-    if (h.t > 0 && (!found || h.t < best.t)) { best = h; found = true; }
+    if (h.t > r.m_tmin && h.t < r.m_tmax && (!found || h.t < best.t)) { best = h; found = true; }
   }
   if (!found) {
     // Simple sky gradient based on ray direction.
     double tSky = 0.5 * (r.m_v.y + 1.0);
     tSky = tSky * tSky;
-    return Vec(1.0, 1.0, 1.0) * (1.0 - tSky) + Vec(0.2, 0.4, 1.0) * tSky;
+    Vec sky = Vec(1.0, 1.0, 1.0) * (1.0 - tSky) + Vec(0.2, 0.4, 1.0) * tSky;
+    return throughput * sky;
   }
 
   Vec x = best.p;
   Vec n = best.n;
   Vec nl = glm::dot(n, r.m_v) < 0 ? n : -n;
 
-  if (depth >= 20 || best.m_mat == LIGHT) return best.e;
+  if (depth >= 20 || best.m_mat == LIGHT) return throughput * best.e;
 
   // Cosine-weighted hemisphere sampling around the normal.
   double r1 = 2.0 * M_PI * rand01();
@@ -172,16 +254,22 @@ Vec radiance(const Ray &r, int depth){
   Vec v = glm::cross(w, u);
   Vec d = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2));
 
-  return best.e + best.c * radiance(Ray(x, d), depth + 1);
+  return throughput * best.e + radiance(objects, Ray(x, d), depth + 1, throughput * best.c);
 }
 
 
 int main(int argc, char *argv[]){
-  int w = 800, h = (int)(w * 9. / 16.), samples = argc==2 ? atoi(argv[1]) : 256; // # samples
-  objects = create_spheres(10);
-  std::vector<Vec> colors;
-  colors.resize(w*h);
+  int samples = argc==2 ? atoi(argv[1]) : 128; // # samples
+  double div{1./samples};
+
+  std::vector<std::unique_ptr<Hitable>> objects;
+  //double aspect = create_spheres(10, objects);
+  double aspect = create_cornell(0, objects);;
+
+  int w{1024}, h{(int)(w / aspect)}; // image resolution
   Camera cam(Vec(0,1,0), Vec(0,0,-1), Vec(0,1,0), w, h);
+  std::vector<Vec> colors;
+  colors.resize(w * h);
   Ray ray;
 
 #pragma omp parallel for schedule(dynamic, 1) private(ray)       // OpenMP
@@ -193,10 +281,11 @@ int main(int argc, char *argv[]){
     for (unsigned short x=0; x<w; x++) { // Loop cols
       Vec sum(0);
       for(int s=0; s<samples; s++) {
-        ray = cam.ray(x + rand01(), y + rand01());
-        sum = sum + radiance(ray, 1);
+        int hIndex = s + 1;
+        ray = cam.ray(x + halton(hIndex, 2), y + halton(hIndex, 3));
+        sum = sum + radiance(objects, ray, 1, Vec(1.0));
       }
-      colors[x + y * w] = clamp(sum * (1./samples)) * 255.0;
+      colors[x + y * w] = clamp(sum * div) * 255.0;
     }
   }
 
