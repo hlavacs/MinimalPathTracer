@@ -81,6 +81,8 @@ struct Hitable {
   virtual Hit intersect(const Ray &ray) const = 0; // returns hit info, t=0 if no hit
 };
 
+std::vector<Hitable*> Lights;
+
 struct Sphere : public Hitable {
   double m_r;          // radius
   Vec m_p, m_e, m_c;   // position, emission, color
@@ -190,6 +192,7 @@ auto create_cornell(int count, auto &objects) {
   objects.push_back(std::make_unique<Quad_XZ>(xShift + 0, xShift + 2, zShift + 0, zShift + 2, 2, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, true));  // Ceiling (faces -Y)
   objects.push_back(std::make_unique<Quad_XY>(xShift + 0, xShift + 2, 0, 2, zShift, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, true)); // Back wall (faces -Z)
   objects.push_back(std::make_unique<Quad_XZ>(xShift + 0.8, xShift + 1.2, zShift + 0.8, zShift + 1.2, 1.99, Vec(12, 12, 12), Vec(0), LIGHT, true));  // Ceiling (faces -Y)
+  Lights.push_back(objects.back().get());
 
   // Two spheres resting on the floor inside the Cornell box.
   objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.95, 0.95, 0.95), SPEC));
@@ -202,6 +205,7 @@ auto create_spheres(int count, auto &objects) {
   // Ground and a simple overhead light.
   objects.emplace_back(std::make_unique<Sphere>(10000.0, Vec(0, -10000, 0), Vec(), Vec(0.3, 0.90, 0.25), DIFF));
   objects.emplace_back(std::make_unique<Sphere>(1.0, Vec(10, 10, 0), Vec(5, 5, 5), Vec(), LIGHT));
+  Lights.push_back(objects.back().get());
   objects.emplace_back(std::make_unique<Sphere>(0.4, Vec(0, 0.4, -5), Vec(), Vec(0.8, 0.8, 0.8), DIFF));
 
   for (int i = 0; i < count; ++i) {
@@ -291,14 +295,14 @@ Vec radiance(const auto &objects, const Ray &r) {
 
 
 int main(int argc, char *argv[]){
-  int samples = argc==2 ? atoi(argv[1]) : 256; // # samples
+  int samples = argc==2 ? atoi(argv[1]) : 512; // # samples
   double div{1./samples};
 
   std::vector<std::unique_ptr<Hitable>> objects;
   //double aspect = create_spheres(10, objects);
   double aspect = create_cornell(0, objects);;
 
-  int w{1024}, h{(int)(w / aspect)}; // image resolution
+  int w{800}, h{(int)(w / aspect)}; // image resolution
   Camera cam(Vec(0,1,0), Vec(0,0,-1), Vec(0,1,0), w, h);
   std::vector<Vec> colors;
   colors.resize(w * h);
