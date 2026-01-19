@@ -259,7 +259,7 @@ Vec radiance(const auto &objects, const Ray &r, int depth, Vec throughput){
 
 
 int main(int argc, char *argv[]){
-  int samples = argc==2 ? atoi(argv[1]) : 128; // # samples
+  int samples = argc==2 ? atoi(argv[1]) : 64; // # samples
   double div{1./samples};
 
   std::vector<std::unique_ptr<Hitable>> objects;
@@ -272,11 +272,11 @@ int main(int argc, char *argv[]){
   colors.resize(w * h);
   Ray ray;
 
-#pragma omp parallel for schedule(dynamic, 1) private(ray)       // OpenMP
+#pragma omp parallel for schedule(dynamic, 8) private(ray)       // OpenMP
 
   for (int y=0; y<h; y++) {                       // Loop over image rows
     int percent = static_cast<int>(100.0 * y / (h - 1));
-    std::cout << "\rRendering (" << samples << " spp) " << percent << "%     " << std::flush;
+    std::cout << "\r\033Rendering (" << samples << " spp) " << percent << "%            " << std::flush;
 
     for (unsigned short x=0; x<w; x++) { // Loop cols
       Vec sum(0);
