@@ -6,6 +6,8 @@
 #include <iostream>
 #include <fstream>
 #include <memory>
+#include <functional>
+#include <omp.h>
 #include <glm/glm.hpp>
 
 using Vec = glm::dvec3; 
@@ -281,9 +283,10 @@ int main(int argc, char *argv[]){
 #pragma omp parallel for schedule(dynamic, 8) private(ray)       // OpenMP
 
   for (int y=0; y<h; y++) {                       // Loop over image rows
-    int percent = static_cast<int>(100.0 * y / (h - 1));
-    std::cout << "\r\033Rendering (" << samples << " spp) " << percent << "%            " << std::flush;
-
+    if (omp_get_thread_num() == 0 || omp_get_num_threads() == 1) {
+      int percent = static_cast<int>(100.0 * y / (h - 1));
+      std::cout << "\r\033Rendering (" << samples << " spp) " << percent << "%" << std::flush;
+    }
     for (unsigned short x=0; x<w; x++) { // Loop cols
       Vec sum(0);
       for(int s=0; s<samples; s++) {
