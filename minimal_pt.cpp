@@ -33,7 +33,7 @@ inline Vec clamp(const Vec &v) { return Vec(clamp(v.x), clamp(v.y), clamp(v.z));
 
 struct Ray { 
   Vec m_o, m_v;
-  double m_tmin = 1e-3;
+  double m_tmin = 1e-4;
   double m_tmax = 1e10;
   Ray() = default;
   Ray(Vec o, Vec v, double tmin = 1e-4, double tmax = 1e10) : m_o(o), m_v(v), m_tmin(tmin), m_tmax(tmax) {} 
@@ -254,7 +254,7 @@ Vec radiance(const auto &objects, const Ray &r, int depth, Vec throughput){
   Vec v = glm::cross(w, u);
   Vec d = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2));
 
-  return throughput * best.e + radiance(objects, Ray(x, d), depth + 1, throughput * best.c);
+  return throughput * best.e + radiance(objects, Ray(x + 1e-4*nl, d), depth + 1, throughput * best.c);
 }
 
 
