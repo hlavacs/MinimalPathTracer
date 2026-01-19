@@ -73,6 +73,7 @@ enum Material { DIFF, SPEC, REFR, LIGHT };  // material types, used in radiance(
 struct Hit {
   double t;       // distance along ray to hit
   Vec p, n, e, c; // position, normal, emission, color
+  double m_roughness; // specular roughness (0 = mirror)
   Material m_mat; // material type
 };
 
@@ -83,10 +84,11 @@ struct Hitable {
 struct Sphere : public Hitable {
   double m_r;          // radius
   Vec m_p, m_e, m_c;   // position, emission, color
+  double m_roughness;  // specular roughness (0 = mirror)
   Material m_mat;      // reflection type (DIFFuse, SPECular, REFRactive)
 
-  Sphere(double r, Vec p, Vec e, Vec c, Material mat):
-    m_r(r), m_p(p), m_e(e), m_c(c), m_mat(mat) {}
+  Sphere(double r, Vec p, Vec e, Vec c, Material mat, double roughness = 0.0):
+    m_r(r), m_p(p), m_e(e), m_c(c), m_roughness(roughness), m_mat(mat) {}
 
   Hit intersect(const Ray &ray) const { // returns hit info, t=0 if no hit
     // Ray-sphere intersection: solve quadratic for t along ray direction.
@@ -95,14 +97,14 @@ struct Sphere : public Hitable {
     double b = glm::dot(op, ray.m_v);
     double det = b * b - glm::dot(op, op) + m_r * m_r;
     // If discriminant is negative, the ray misses the sphere.
-    if (det < 0) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    if (det < 0) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), 0.0, m_mat};
     det = sqrt(det);
     // Return nearest positive hit; 0 means no hit.
     t = (t = b - det) > eps ? t : ((t = b + det) > eps ? t : 0);
-    if (t == 0) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    if (t == 0) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), 0.0, m_mat};
     Vec p = ray.m_o + ray.m_v * t;
     Vec n = glm::normalize(p - m_p);
-    return Hit{t, p, n, m_e, m_c, m_mat};
+    return Hit{t, p, n, m_e, m_c, m_roughness, m_mat};
   }
 };
 
@@ -110,21 +112,22 @@ struct Quad_XY : public Hitable {
   double m_x0, m_x1, m_y0, m_y1;  // extents along X and Y
   double d;  // distance from origin along Z axis
   Vec m_e, m_c;   // emission, color
+  double m_roughness; // specular roughness (0 = mirror)
   Material m_mat; // reflection type (DIFFuse, SPECular, REFRactive
   bool m_flip;
 
-  Quad_XY(double x0, double x1, double y0, double y1, double dist, Vec e, Vec c, Material mat, bool flip=false):
-    m_x0(x0), m_x1(x1), m_y0(y0), m_y1(y1), d(dist), m_e(e), m_c(c), m_mat(mat), m_flip(flip) {}
+  Quad_XY(double x0, double x1, double y0, double y1, double dist, Vec e, Vec c, Material mat, bool flip=false, double roughness = 0.0):
+    m_x0(x0), m_x1(x1), m_y0(y0), m_y1(y1), d(dist), m_e(e), m_c(c), m_roughness(roughness), m_mat(mat), m_flip(flip) {}
 
   Hit intersect(const Ray &ray) const {
     double t = (d - ray.m_o.z) / ray.m_v.z; // solve for intersection with plane at z=d
-    if (t <= 0 || t > 1e10) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    if (t <= 0 || t > 1e10) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), 0.0, m_mat};
 
     Vec p = ray.m_o + ray.m_v * t;
-    if (p.x < m_x0 || p.x > m_x1 || p.y < m_y0 || p.y > m_y1) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    if (p.x < m_x0 || p.x > m_x1 || p.y < m_y0 || p.y > m_y1) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), 0.0, m_mat};
 
     Vec n = m_flip ? Vec(0, 0, -1) : Vec(0, 0, 1);
-    return Hit{t, p, n, m_e, m_c, m_mat};
+    return Hit{t, p, n, m_e, m_c, m_roughness, m_mat};
   }
 };
 
@@ -132,21 +135,22 @@ struct Quad_XZ : public Hitable {
   double m_x0, m_x1, m_z0, m_z1;  // extents along X and Z
   double d;  // distance from origin along Y axis
   Vec m_e, m_c;   // emission, color
+  double m_roughness; // specular roughness (0 = mirror)
   Material m_mat; // reflection type (DIFFuse, SPECular, REFRactive
   bool m_flip;
 
-  Quad_XZ(double x0, double x1, double z0, double z1, double dist, Vec e, Vec c, Material mat, bool flip=false):
-    m_x0(x0), m_x1(x1), m_z0(z0), m_z1(z1), d(dist), m_e(e), m_c(c), m_mat(mat), m_flip(flip) {}
+  Quad_XZ(double x0, double x1, double z0, double z1, double dist, Vec e, Vec c, Material mat, bool flip=false, double roughness = 0.0):
+    m_x0(x0), m_x1(x1), m_z0(z0), m_z1(z1), d(dist), m_e(e), m_c(c), m_roughness(roughness), m_mat(mat), m_flip(flip) {}
 
   Hit intersect(const Ray &ray) const {
     double t = (d - ray.m_o.y) / ray.m_v.y; // solve for intersection with plane at y=d
-    if (t <= 0 || t > 1e10) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    if (t <= 0 || t > 1e10) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), 0.0, m_mat};
 
     Vec p = ray.m_o + ray.m_v * t;
-    if (p.x < m_x0 || p.x > m_x1 || p.z < m_z0 || p.z > m_z1) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    if (p.x < m_x0 || p.x > m_x1 || p.z < m_z0 || p.z > m_z1) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), 0.0, m_mat};
 
     Vec n = m_flip ? Vec(0, -1, 0) : Vec(0, 1, 0);
-    return Hit{t, p, n, m_e, m_c, m_mat};
+    return Hit{t, p, n, m_e, m_c, m_roughness, m_mat};
   }
 };
 
@@ -154,21 +158,22 @@ struct Quad_YZ : public Hitable {
   double m_y0, m_y1, m_z0, m_z1;  // extents along Y and Z
   double d;  // distance from origin along X axis
   Vec m_e, m_c;   // emission, color
+  double m_roughness; // specular roughness (0 = mirror)
   Material m_mat; // reflection type (DIFFuse, SPECular, REFRactive
   bool m_flip;
 
-  Quad_YZ(double y0, double y1, double z0, double z1, double dist, Vec e, Vec c, Material mat, bool flip=false):
-    m_y0(y0), m_y1(y1), m_z0(z0), m_z1(z1), d(dist), m_e(e), m_c(c), m_mat(mat), m_flip(flip) {}
+  Quad_YZ(double y0, double y1, double z0, double z1, double dist, Vec e, Vec c, Material mat, bool flip=false, double roughness = 0.0):
+    m_y0(y0), m_y1(y1), m_z0(z0), m_z1(z1), d(dist), m_e(e), m_c(c), m_roughness(roughness), m_mat(mat), m_flip(flip) {}
 
   Hit intersect(const Ray &ray) const {
     double t = (d - ray.m_o.x) / ray.m_v.x; // solve for intersection with plane at x=d
-    if (t <= 0 || t > 1e10) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    if (t <= 0 || t > 1e10) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), 0.0, m_mat};
 
     Vec p = ray.m_o + ray.m_v * t;
-    if (p.y < m_y0 || p.y > m_y1 || p.z < m_z0 || p.z > m_z1) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), m_mat};
+    if (p.y < m_y0 || p.y > m_y1 || p.z < m_z0 || p.z > m_z1) return Hit{0.0, Vec(), Vec(), Vec(), Vec(), 0.0, m_mat};
 
     Vec n = m_flip ? Vec(-1, 0, 0) : Vec(1, 0, 0);
-    return Hit{t, p, n, m_e, m_c, m_mat};
+    return Hit{t, p, n, m_e, m_c, m_roughness, m_mat};
   }
 };
 
@@ -187,7 +192,7 @@ auto create_cornell(int count, auto &objects) {
   objects.push_back(std::make_unique<Quad_XZ>(xShift + 0.8, xShift + 1.2, zShift + 0.8, zShift + 1.2, 1.99, Vec(12, 12, 12), Vec(0), LIGHT, true));  // Ceiling (faces -Y)
 
   // Two spheres resting on the floor inside the Cornell box.
-  objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.95, 0.95, 0.95), DIFF));
+  objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.95, 0.95, 0.95), SPEC));
   objects.push_back(std::make_unique<Sphere>(0.5, Vec(xShift + 1.35, 0.5, zShift + 1.4), Vec(), Vec(0.95, 0.95, 0.95), DIFF));
 
   return 3.0 / 3.3; // aspect ratio
@@ -238,6 +243,20 @@ Ray sample_diffuse_ray(const Vec &p, const Vec &nl) {
   return Ray(p + 1e-4 * nl, d);
 }
 
+Ray sample_specular_ray(const Vec &p, const Vec &nl, const Vec &inDir, double roughness) {
+  Vec refl = glm::normalize(inDir - 2.0 * glm::dot(inDir, nl) * nl);
+  if (roughness <= 0.0) return Ray(p + 1e-4 * nl, refl);
+
+  double r1 = 2.0 * M_PI * rand01();
+  double r2 = rand01();
+  double r2s = sqrt(r2);
+  Vec u = glm::normalize(glm::cross(fabs(refl.x) > 0.1 ? Vec(0, 1, 0) : Vec(1, 0, 0), refl));
+  Vec v = glm::cross(refl, u);
+  Vec hemi = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + refl * sqrt(1 - r2));
+  Vec d = glm::normalize((1.0 - roughness) * refl + roughness * hemi);
+  return Ray(p + 1e-4 * nl, d);
+}
+
 
 Vec radiance(const auto &objects, const Ray &r) {
   Ray ray = r;
@@ -258,7 +277,12 @@ Vec radiance(const auto &objects, const Ray &r) {
 
     radianceSum += tp * best.e; // accumulate emitted radiance
 
-    ray = sample_diffuse_ray(best.p, glm::dot(best.n, ray.m_v) < 0 ? best.n : -best.n);
+    Vec nl = glm::dot(best.n, ray.m_v) < 0 ? best.n : -best.n;
+    if (best.m_mat == SPEC) {
+      ray = sample_specular_ray(best.p, nl, ray.m_v, best.m_roughness);
+    } else {
+      ray = sample_diffuse_ray(best.p, nl);
+    }
     tp = tp * best.c; // update throughput
     ++curDepth; // increase recursion depth
     if(!russian_roulette(tp, curDepth)) { return radianceSum; }
