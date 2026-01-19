@@ -182,7 +182,7 @@ auto create_cornell(int count, auto &objects) {
   objects.push_back(std::make_unique<Quad_XZ>(xShift + 0, xShift + 2, zShift + 0, zShift + 2, 0, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, false)); // Floor (faces +Y)
   objects.push_back(std::make_unique<Quad_XZ>(xShift + 0, xShift + 2, zShift + 0, zShift + 2, 2, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, true));  // Ceiling (faces -Y)
   objects.push_back(std::make_unique<Quad_XY>(xShift + 0, xShift + 2, 0, 2, zShift, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, true)); // Back wall (faces -Z)
-  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0.8, xShift + 1.2, zShift + 0.8, zShift + 1.2, 1.99, Vec(5, 5, 5), Vec(0), LIGHT, true));  // Ceiling (faces -Y)
+  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0.8, xShift + 1.2, zShift + 0.8, zShift + 1.2, 1.99, Vec(12, 12, 12), Vec(0), LIGHT, true));  // Ceiling (faces -Y)
 
   // Two spheres resting on the floor inside the Cornell box.
   objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.95, 0.95, 0.95), DIFF));
@@ -212,11 +212,28 @@ auto create_spheres(int count, auto &objects) {
   return aspect;
 }
 
-
 bool russian_roulette(const Vec &throughput, int depth) {
   if (depth < 5) return true;
   double p = glm::max(throughput.x, glm::max(throughput.y, throughput.z));
   return rand01() < p;
+}
+
+Vec sky_radiance(const Ray &r) {
+  double t = 0.5 * (r.m_v.y + 1.0);
+  t = t * t;
+  Vec sky = Vec(1.0, 1.0, 1.0) * (1.0 - t) + Vec(0.2, 0.4, 1.0) * t;
+  return sky;
+}
+
+Ray sample_diffuse_ray(const Vec &p, const Vec &nl) {
+  // Cosine-weighted hemisphere sampling around the normal.
+  double r1 = 2.0 * M_PI * rand01();
+  double r2 = rand01();
+  double r2s = sqrt(r2);
+  Vec u = glm::normalize(glm::cross(fabs(nl.x) > 0.1 ? Vec(0, 1, 0) : Vec(1, 0, 0), nl));
+  Vec v = glm::cross(nl, u);
+  Vec d = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + nl * sqrt(1 - r2));
+  return Ray(p + 1e-4 * nl, d);
 }
 
 
@@ -227,40 +244,22 @@ Vec radiance(const auto &objects, const Ray &r) {
   Vec radianceSum = Vec(0.0);
 
   for (;;) {
-    if(!russian_roulette(tp, curDepth)) { 
-       return radianceSum;
-    }
-
     Hit best{.t = 0.0};
     bool found = false;
     for (const std::unique_ptr<Hitable> &obj : objects) {
       Hit h = obj->intersect(ray);
       if (h.t > ray.m_tmin && h.t < ray.m_tmax && (!found || h.t < best.t)) { best = h; found = true; }
     }
-    if (!found) {
-      // Simple sky gradient based on ray direction.
-      double tSky = 0.5 * (ray.m_v.y + 1.0);
-      tSky = tSky * tSky;
-      Vec sky = Vec(1.0, 1.0, 1.0) * (1.0 - tSky) + Vec(0.2, 0.4, 1.0) * tSky;
-      return radianceSum + tp * sky;
-    }
+    if (!found) { return radianceSum + tp * sky_radiance(ray); }  
 
-    Vec w = glm::dot(best.n, ray.m_v) < 0 ? best.n : -best.n;
     if (curDepth >= 20 || best.m_mat == LIGHT) return radianceSum + tp * best.e;
 
-    radianceSum += tp * best.e;
+    radianceSum += tp * best.e; // accumulate emitted radiance
 
-    // Cosine-weighted hemisphere sampling around the normal.
-    double r1 = 2.0 * M_PI * rand01();
-    double r2 = rand01();
-    double r2s = sqrt(r2);
-    Vec u = glm::normalize(glm::cross(fabs(w.x) > 0.1 ? Vec(0, 1, 0) : Vec(1, 0, 0), w));
-    Vec v = glm::cross(w, u);
-    Vec d = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2));
-
-    ray = Ray(best.p + 1e-4 * w, d);
-    tp = tp * best.c;
-    ++curDepth;
+    ray = sample_diffuse_ray(best.p, glm::dot(best.n, ray.m_v) < 0 ? best.n : -best.n);
+    tp = tp * best.c; // update throughput
+    ++curDepth; // increase recursion depth
+    if(!russian_roulette(tp, curDepth)) { return radianceSum; }
   }
 }
 
@@ -289,8 +288,8 @@ int main(int argc, char *argv[]){
       Vec sum(0);
       for(int s=0; s<samples; s++) {
         int hIndex = s + 1;
-        ray = cam.ray(x + halton(hIndex, 2), y + halton(hIndex, 3));
-        sum = sum + radiance(objects, ray);
+        ray = cam.ray(x + halton(hIndex, 2), y + halton(hIndex, 3)); // Generate camera ray
+        sum = sum + radiance(objects, ray); // Trace ray and accumulate radiance
       }
       colors[x + y * w] = clamp(sum * div) * 255.0;
     }
