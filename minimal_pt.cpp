@@ -185,8 +185,8 @@ auto create_cornell(int count, auto &objects) {
   objects.push_back(std::make_unique<Quad_XZ>(xShift + 0.8, xShift + 1.2, zShift + 0.8, zShift + 1.2, 1.99, Vec(5, 5, 5), Vec(0), LIGHT, true));  // Ceiling (faces -Y)
 
   // Two spheres resting on the floor inside the Cornell box.
-  objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.9, 0.9, 0.9), DIFF));
-  objects.push_back(std::make_unique<Sphere>(0.5, Vec(xShift + 1.35, 0.5, zShift + 1.4), Vec(), Vec(0.9, 0.8, 0.2), DIFF));
+  objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.95, 0.95, 0.95), DIFF));
+  objects.push_back(std::make_unique<Sphere>(0.5, Vec(xShift + 1.35, 0.5, zShift + 1.4), Vec(), Vec(0.95, 0.95, 0.95), DIFF));
 
   return 3.0 / 3.3; // aspect ratio
 }
@@ -212,54 +212,61 @@ auto create_spheres(int count, auto &objects) {
   return aspect;
 }
 
-Vec radiance(const auto &objects, const Ray &r, int depth, Vec throughput){
 
-  //russian roulette
+bool russian_roulette(const Vec &throughput, int depth) {
+  if (depth < 5) return true;
   double p = glm::max(throughput.x, glm::max(throughput.y, throughput.z));
-  if (depth > 4) {
-    if (rand01() < p) {
-      throughput = throughput * (1.0 / p);
-    } else {
-      return Vec(0);
+  return rand01() < p;
+}
+
+
+Vec radiance(const auto &objects, const Ray &r) {
+  Ray ray = r;
+  int curDepth = 0; // recursion depth
+  Vec tp = Vec(1.0); // throughput
+  Vec radianceSum = Vec(0.0);
+
+  for (;;) {
+    if(!russian_roulette(tp, curDepth)) { 
+       return radianceSum;
     }
+
+    Hit best{.t = 0.0};
+    bool found = false;
+    for (const std::unique_ptr<Hitable> &obj : objects) {
+      Hit h = obj->intersect(ray);
+      if (h.t > ray.m_tmin && h.t < ray.m_tmax && (!found || h.t < best.t)) { best = h; found = true; }
+    }
+    if (!found) {
+      // Simple sky gradient based on ray direction.
+      double tSky = 0.5 * (ray.m_v.y + 1.0);
+      tSky = tSky * tSky;
+      Vec sky = Vec(1.0, 1.0, 1.0) * (1.0 - tSky) + Vec(0.2, 0.4, 1.0) * tSky;
+      return radianceSum + tp * sky;
+    }
+
+    Vec w = glm::dot(best.n, ray.m_v) < 0 ? best.n : -best.n;
+    if (curDepth >= 20 || best.m_mat == LIGHT) return radianceSum + tp * best.e;
+
+    radianceSum += tp * best.e;
+
+    // Cosine-weighted hemisphere sampling around the normal.
+    double r1 = 2.0 * M_PI * rand01();
+    double r2 = rand01();
+    double r2s = sqrt(r2);
+    Vec u = glm::normalize(glm::cross(fabs(w.x) > 0.1 ? Vec(0, 1, 0) : Vec(1, 0, 0), w));
+    Vec v = glm::cross(w, u);
+    Vec d = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2));
+
+    ray = Ray(best.p + 1e-4 * w, d);
+    tp = tp * best.c;
+    ++curDepth;
   }
-
-  Hit best;
-  best.t = 0;
-  bool found = false;
-  for (const std::unique_ptr<Hitable> &obj : objects) {
-    Hit h = obj->intersect(r);
-    if (h.t > r.m_tmin && h.t < r.m_tmax && (!found || h.t < best.t)) { best = h; found = true; }
-  }
-  if (!found) {
-    // Simple sky gradient based on ray direction.
-    double tSky = 0.5 * (r.m_v.y + 1.0);
-    tSky = tSky * tSky;
-    Vec sky = Vec(1.0, 1.0, 1.0) * (1.0 - tSky) + Vec(0.2, 0.4, 1.0) * tSky;
-    return throughput * sky;
-  }
-
-  Vec x = best.p;
-  Vec n = best.n;
-  Vec nl = glm::dot(n, r.m_v) < 0 ? n : -n;
-
-  if (depth >= 20 || best.m_mat == LIGHT) return throughput * best.e;
-
-  // Cosine-weighted hemisphere sampling around the normal.
-  double r1 = 2.0 * M_PI * rand01();
-  double r2 = rand01();
-  double r2s = sqrt(r2);
-  Vec w = nl;
-  Vec u = glm::normalize(glm::cross(fabs(w.x) > 0.1 ? Vec(0, 1, 0) : Vec(1, 0, 0), w));
-  Vec v = glm::cross(w, u);
-  Vec d = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + w * sqrt(1 - r2));
-
-  return throughput * best.e + radiance(objects, Ray(x + 1e-4*nl, d), depth + 1, throughput * best.c);
 }
 
 
 int main(int argc, char *argv[]){
-  int samples = argc==2 ? atoi(argv[1]) : 64; // # samples
+  int samples = argc==2 ? atoi(argv[1]) : 256; // # samples
   double div{1./samples};
 
   std::vector<std::unique_ptr<Hitable>> objects;
@@ -283,7 +290,7 @@ int main(int argc, char *argv[]){
       for(int s=0; s<samples; s++) {
         int hIndex = s + 1;
         ray = cam.ray(x + halton(hIndex, 2), y + halton(hIndex, 3));
-        sum = sum + radiance(objects, ray, 1, Vec(1.0));
+        sum = sum + radiance(objects, ray);
       }
       colors[x + y * w] = clamp(sum * div) * 255.0;
     }
