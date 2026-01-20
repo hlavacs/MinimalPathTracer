@@ -79,7 +79,19 @@ struct Hit {
 
 struct Hitable {
   virtual Hit intersect(const Ray &ray) const = 0; // returns hit info, t=0 if no hit
+  virtual Vec rnd_point() const = 0; // returns a random point on the surface
 };
+
+auto traverse( const auto &objects, const Ray &ray ) {
+  Hit best{.t = 0.0};
+  bool found = false;
+  for (const std::unique_ptr<Hitable> &obj : objects) {
+    Hit h = obj->intersect(ray);
+    if (h.t > ray.m_tmin && h.t < ray.m_tmax && (!found || h.t < best.t)) { best = h; found = true; }
+  }
+  return std::make_pair(found, best);
+}
+
 
 std::vector<Hitable*> Lights;
 
@@ -108,6 +120,15 @@ struct Sphere : public Hitable {
     Vec n = glm::normalize(p - m_p);
     return Hit{t, p, n, m_e, m_c, m_roughness, m_mat};
   }
+
+  Vec rnd_point() const {
+    double z = 1.0 - 2.0 * rand01();
+    double r = sqrt(glm::max(0.0, 1.0 - z * z));
+    double phi = 2.0 * M_PI * rand01();
+    double x = r * cos(phi);
+    double y = r * sin(phi);
+    return m_p + Vec(x, y, z) * m_r;
+  }
 };
 
 struct Quad_XY : public Hitable {
@@ -130,6 +151,12 @@ struct Quad_XY : public Hitable {
 
     Vec n = m_flip ? Vec(0, 0, -1) : Vec(0, 0, 1);
     return Hit{t, p, n, m_e, m_c, m_roughness, m_mat};
+  }
+
+  Vec rnd_point() const {
+    double x = m_x0 + (m_x1 - m_x0) * rand01();
+    double y = m_y0 + (m_y1 - m_y0) * rand01();
+    return Vec(x, y, d);
   }
 };
 
@@ -154,6 +181,12 @@ struct Quad_XZ : public Hitable {
     Vec n = m_flip ? Vec(0, -1, 0) : Vec(0, 1, 0);
     return Hit{t, p, n, m_e, m_c, m_roughness, m_mat};
   }
+
+  Vec rnd_point() const {
+    double x = m_x0 + (m_x1 - m_x0) * rand01();
+    double z = m_z0 + (m_z1 - m_z0) * rand01();
+    return Vec(x, d, z);
+  }
 };
 
 struct Quad_YZ : public Hitable {
@@ -176,6 +209,12 @@ struct Quad_YZ : public Hitable {
 
     Vec n = m_flip ? Vec(-1, 0, 0) : Vec(1, 0, 0);
     return Hit{t, p, n, m_e, m_c, m_roughness, m_mat};
+  }
+
+  Vec rnd_point() const {
+    double y = m_y0 + (m_y1 - m_y0) * rand01();
+    double z = m_z0 + (m_z1 - m_z0) * rand01();
+    return Vec(d, y, z);
   }
 };
 
@@ -244,7 +283,7 @@ Ray sample_diffuse_ray(const Vec &p, const Vec &nl) {
   Vec u = glm::normalize(glm::cross(fabs(nl.x) > 0.1 ? Vec(0, 1, 0) : Vec(1, 0, 0), nl));
   Vec v = glm::cross(nl, u);
   Vec d = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + nl * sqrt(1 - r2));
-  return Ray(p + 1e-4 * nl, d);
+  return Ray(p + 0e-4 * nl, d);
 }
 
 Ray sample_specular_ray(const Vec &p, const Vec &nl, const Vec &inDir, double roughness) {
@@ -269,15 +308,9 @@ Vec radiance(const auto &objects, const Ray &r) {
   Vec radianceSum = Vec(0.0);
 
   for (;;) {
-    Hit best{.t = 0.0};
-    bool found = false;
-    for (const std::unique_ptr<Hitable> &obj : objects) {
-      Hit h = obj->intersect(ray);
-      if (h.t > ray.m_tmin && h.t < ray.m_tmax && (!found || h.t < best.t)) { best = h; found = true; }
-    }
+    auto [found, best] = traverse(objects, ray);
     if (!found) { return radianceSum + tp * sky_radiance(ray); }  
-
-    if (curDepth >= 20 || best.m_mat == LIGHT) return radianceSum + tp * best.e;
+    if (curDepth >= 32 || best.m_mat == LIGHT) return radianceSum + tp * best.e;
 
     radianceSum += tp * best.e; // accumulate emitted radiance
 
@@ -295,14 +328,14 @@ Vec radiance(const auto &objects, const Ray &r) {
 
 
 int main(int argc, char *argv[]){
-  int samples = argc==2 ? atoi(argv[1]) : 512; // # samples
+  int samples = argc==2 ? atoi(argv[1]) : 128; // # samples
   double div{1./samples};
 
   std::vector<std::unique_ptr<Hitable>> objects;
   //double aspect = create_spheres(10, objects);
   double aspect = create_cornell(0, objects);;
 
-  int w{800}, h{(int)(w / aspect)}; // image resolution
+  int w{1024}, h{(int)(w / aspect)}; // image resolution
   Camera cam(Vec(0,1,0), Vec(0,0,-1), Vec(0,1,0), w, h);
   std::vector<Vec> colors;
   colors.resize(w * h);
