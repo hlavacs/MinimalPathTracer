@@ -366,7 +366,7 @@ int main(int argc, char *argv[]){
 
   std::vector<std::unique_ptr<Hitable>> objects;
   double aspect;
-  if( 1 ) { aspect = create_spheres(25, objects); } 
+  if( 0 ) { aspect = create_spheres(25, objects); } 
   else { aspect = create_cornell(0, objects); }
 
   int w{1024}, h{(int)(w / aspect)}; // image resolution
