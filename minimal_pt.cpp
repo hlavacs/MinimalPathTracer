@@ -370,7 +370,7 @@ int main(int argc, char *argv[]){
   if( scene == 0 ) { aspect = create_spheres(25, objects); } 
   else { aspect = create_cornell(0, objects); }
 
-  int w{1024}, h{(int)(w / aspect)}; // image resolution
+  int w{1920}, h{(int)(w / aspect)}; // image resolution
   Camera cam(Vec(0,1,0), Vec(0,0,-1), Vec(0,1,0), w, h);
   std::vector<Vec> colors;
   colors.resize(w * h);
