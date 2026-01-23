@@ -361,12 +361,13 @@ Vec radiance(const auto &objects, const Ray &r) {
 
 
 int main(int argc, char *argv[]){
-  int samples = argc==2 ? atoi(argv[1]) : 128; // # samples
+  int scene = argc>=2 ? atoi(argv[1]) : 0; // # samples
+  int samples = argc==3 ? atoi(argv[2]) : 128; // # samples
   double div{1./samples};
 
   std::vector<std::unique_ptr<Hitable>> objects;
   double aspect;
-  if( 0 ) { aspect = create_spheres(25, objects); } 
+  if( scene == 0 ) { aspect = create_spheres(25, objects); } 
   else { aspect = create_cornell(0, objects); }
 
   int w{1024}, h{(int)(w / aspect)}; // image resolution
@@ -380,7 +381,7 @@ int main(int argc, char *argv[]){
   for (int y=0; y<h; y++) {                       // Loop over image rows
     if (omp_get_thread_num() == 0 || omp_get_num_threads() == 1) {
       int percent = static_cast<int>(100.0 * y / (h - 1));
-      std::cout << "\r\033Rendering (" << samples << " spp) " << percent << "%" << std::flush;
+      std::cout << "\r\033 Rendering (" << samples << " spp) " << percent << "%" << std::flush;
     }
     for (unsigned short x=0; x<w; x++) { // Loop cols
       Vec sum(0);
