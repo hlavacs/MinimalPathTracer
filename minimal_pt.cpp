@@ -361,7 +361,7 @@ Vec radiance(const auto &objects, const Ray &r) {
 
 
 int main(int argc, char *argv[]){
-  int scene = argc>=2 ? atoi(argv[1]) : 0; // # samples
+  int scene = argc>=2 ? atoi(argv[1]) : 0; // # scene
   int samples = argc==3 ? atoi(argv[2]) : 128; // # samples
   double div{1./samples};
 
