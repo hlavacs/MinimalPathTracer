@@ -234,8 +234,8 @@ auto create_cornell(int count, auto &objects) {
   Lights.push_back(objects.back().get());
 
   // Two spheres resting on the floor inside the Cornell box.
-  objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.95, 0.95, 0.95), Material::SPEC, 0.4));
-  objects.push_back(std::make_unique<Sphere>(0.5, Vec(xShift + 1.35, 0.5, zShift + 1.4), Vec(), Vec(0.95, 0.95, 0.95), Material::DIFF));
+  objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.95, 0.95, 0.95), Material::SPEC, 0.0));
+  objects.push_back(std::make_unique<Sphere>(0.5, Vec(xShift + 1.35, 0.5, zShift + 1.4), Vec(), Vec(0.95, 0.95, 0.95), Material::SPEC, 0.5));
 
   return 3.0 / 3.3; // aspect ratio
 }
@@ -262,10 +262,11 @@ auto create_spheres(int count, auto &objects) {
   return aspect;
 }
 
-bool russian_roulette(const Vec &throughput, int depth) {
-  if (depth < 5) return true;
+double russian_roulette(const Vec &throughput, int depth) {
+  if (depth < 5) return 1.0;
   double p = glm::max(throughput.x, glm::max(throughput.y, throughput.z));
-  return rand01() < p;
+  p = glm::clamp(p, 0.05, 0.95);
+  return rand01() < p ? (1.0 / p) : 0.0;
 }
 
 Vec sky_radiance(const Ray &r) {
@@ -275,30 +276,40 @@ Vec sky_radiance(const Ray &r) {
   return sky;
 }
 
-Ray sample_diffuse_ray(const Vec &p, const Vec &nl) {
-  // Cosine-weighted hemisphere sampling around the normal.
-  double r1 = 2.0 * M_PI * rand01();
-  double r2 = rand01();
-  double r2s = sqrt(r2);
-  Vec u = glm::normalize(glm::cross(fabs(nl.x) > 0.1 ? Vec(0, 1, 0) : Vec(1, 0, 0), nl));
-  Vec v = glm::cross(nl, u);
-  Vec d = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + nl * sqrt(1 - r2));
-  return Ray(p + 0e-4 * nl, d);
-}
+Ray sample_diffuse_ray(const Vec &p, const Vec &nl, const Vec &albedo, Vec &f, double &pdf) { // diffuse sample entry
+  // Cosine-weighted hemisphere sampling around the normal. // sampling method
+  double r1 = 2.0 * M_PI * rand01(); // azimuthal sample
+  double r2 = rand01(); // radial sample
+  double r2s = sqrt(r2); // radius term
+  Vec u = glm::normalize(glm::cross(fabs(nl.x) > 0.1 ? Vec(0, 1, 0) : Vec(1, 0, 0), nl)); // tangent
+  Vec v = glm::cross(nl, u); // bitangent
+  Vec d = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + nl * sqrt(1 - r2)); // sample dir
+  double cosTheta = glm::max(0.0, glm::dot(nl, d)); // cosine term
+  f = albedo * (1.0 / M_PI); // Lambertian BRDF
+  pdf = cosTheta * (1.0 / M_PI); // cosine-weighted pdf
+  return Ray(p + 0e-4 * nl, d); // spawn ray
+} // end diffuse sample
 
-Ray sample_specular_ray(const Vec &p, const Vec &nl, const Vec &inDir, double roughness) {
-  Vec refl = glm::normalize(inDir - 2.0 * glm::dot(inDir, nl) * nl);
-  if (roughness <= 0.0) return Ray(p + 1e-4 * nl, refl);
+Ray sample_specular_ray(const Vec &p, const Vec &nl, const Vec &inDir, double roughness, const Vec &albedo, Vec &f, double &pdf) { // specular sample entry
+  double r = glm::clamp(roughness, 0.0, 1.0); // clamp roughness
+  Vec refl = glm::normalize(inDir - 2.0 * glm::dot(inDir, nl) * nl); // mirror direction
+  if (r <= 0.0) { // perfect mirror
+    f = albedo; // specular color
+    pdf = glm::max(1e-12, glm::dot(nl, refl)); // pdf placeholder
+    return Ray(p + 1e-4 * nl, refl); // spawn mirror ray
+  } // end mirror case
 
-  double r1 = 2.0 * M_PI * rand01();
-  double r2 = rand01();
-  double r2s = sqrt(r2);
-  Vec u = glm::normalize(glm::cross(fabs(refl.x) > 0.1 ? Vec(0, 1, 0) : Vec(1, 0, 0), refl));
-  Vec v = glm::cross(refl, u);
-  Vec hemi = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + refl * sqrt(1 - r2));
-  Vec d = glm::normalize((1.0 - roughness) * refl + roughness * hemi);
-  return Ray(p + 1e-4 * nl, d);
-}
+  double r1 = 2.0 * M_PI * rand01(); // azimuthal sample
+  double r2 = rand01(); // radial sample
+  double r2s = sqrt(r2); // radius term
+  Vec u = glm::normalize(glm::cross(fabs(refl.x) > 0.1 ? Vec(0, 1, 0) : Vec(1, 0, 0), refl)); // tangent
+  Vec v = glm::cross(refl, u); // bitangent
+  Vec hemi = glm::normalize(u * cos(r1) * r2s + v * sin(r1) * r2s + refl * sqrt(1 - r2)); // hemisphere dir
+  Vec d = glm::normalize((1.0 - r) * refl + r * hemi); // mix reflection
+  f = albedo; // specular color
+  pdf = glm::max(1e-12, glm::dot(nl, d)); // pdf placeholder
+  return Ray(p + 1e-4 * nl, d); // spawn glossy ray
+} // end specular sample
 
 
 Vec radiance(const auto &objects, const Ray &r) {
@@ -315,14 +326,22 @@ Vec radiance(const auto &objects, const Ray &r) {
     radianceSum += tp * best.e; // accumulate emitted radiance
 
     Vec nl = glm::dot(best.n, ray.m_v) < 0 ? best.n : -best.n;
+
+    Vec f;
+    double pdf;
     if (best.m_mat == Material::SPEC) {
-      ray = sample_specular_ray(best.p, nl, ray.m_v, best.m_roughness);
+      ray = sample_specular_ray(best.p, nl, ray.m_v, best.m_roughness, best.c, f, pdf);
     } else {
-      ray = sample_diffuse_ray(best.p, nl);
+      ray = sample_diffuse_ray(best.p, nl, best.c, f, pdf);
     }
-    tp = tp * best.c; // update throughput
+
+    tp *= f * (glm::max(0.0, glm::dot(nl, ray.m_v)) / pdf); // update throughput
+
+    double rrWeight = russian_roulette(tp, curDepth); // Russian roulette
+    if (rrWeight == 0.0) { return radianceSum; }
+    tp *= rrWeight; // unbiased RR compensation
+
     ++curDepth; // increase recursion depth
-    if(!russian_roulette(tp, curDepth)) { return radianceSum; }
   }
 }
 
