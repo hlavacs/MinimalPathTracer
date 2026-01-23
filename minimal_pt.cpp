@@ -240,26 +240,39 @@ auto create_cornell(int count, auto &objects) {
   return 3.0 / 3.3; // aspect ratio
 }
 
+
+void create_random_sphere(auto &objects) {
+  static std::vector<Vec> centers; // track prior centers for spacing
+  double radius = 0.1 + rand01() * 0.3; // small sphere radius
+  Vec pos; // candidate position
+  for (int tries = 0; tries < 50; ++tries) { // retry to enforce spacing
+    double x = (rand01() * 2.0 - 1.0) * 4.0; // wider X spread
+    double z = -4.0 - rand01() * 22.0; // more variance in camera distance
+    pos = Vec(x, radius, z); // place on ground plane
+    bool ok = true; // spacing check
+    for (const Vec &c : centers) { // compare to previous
+      double minDist = 2.5 * radius; // keep separation
+      if (glm::length(pos - c) < minDist) { ok = false; break; } // too close
+    }
+    if (ok) { break; } // accept position
+  }
+  centers.push_back(pos); // remember position
+  Vec color(0.2 + rand01() * 0.8, 0.2 + rand01() * 0.8, 0.2 + rand01() * 0.8); // random albedo
+  bool makeSpec = rand01() < 0.6; // specular probability
+  double roughness = makeSpec ? rand01()/3.0 : 0.0; // roughness for specular
+  Material mat = makeSpec ? Material::SPEC : Material::DIFF; // choose material
+  objects.emplace_back(std::make_unique<Sphere>(radius, pos, Vec(), color, mat, roughness)); // add sphere
+  return; // no aspect ratio needed
+}
+
 auto create_spheres(int count, auto &objects) {
   // Ground and a simple overhead light.
   objects.emplace_back(std::make_unique<Sphere>(10000.0, Vec(0, -10000, 0), Vec(), Vec(0.3, 0.90, 0.25), Material::DIFF));
   objects.emplace_back(std::make_unique<Sphere>(1.0, Vec(10, 10, 0), Vec(5, 5, 5), Vec(), Material::LIGHT));
   Lights.push_back(objects.back().get());
-  objects.emplace_back(std::make_unique<Sphere>(0.4, Vec(0, 0.4, -5), Vec(), Vec(0.8, 0.8, 0.8), Material::DIFF));
 
-  for (int i = 0; i < count; ++i) {
-    double x = (rand01() * 2.0 - 1.0) * 5.0;
-    double z = -5.0 - rand01() * 12.0;
-    double t = (z - (-5.0)) / (-21.0 - (-5.0)); // 0 near, 1 far
-    double sizeJitter = 0.3 + rand01() * 0.9;
-    double radius = (0.15 + t * 1.35) * sizeJitter;
-    Vec pos(x, radius, z);
-    Vec color(0.2 + rand01() * 0.8, 0.2 + rand01() * 0.8, 0.2 + rand01() * 0.8);
-    objects.emplace_back(std::make_unique<Sphere>(radius, pos, Vec(), color, Material::DIFF));
-  }
-
-  double aspect = 16.0 / 9.0;
-  return aspect;
+  for (int i = 0; i < count; ++i) { create_random_sphere(objects); }
+  return 16.0 / 9.0;
 }
 
 double russian_roulette(const Vec &throughput, int depth) {
@@ -321,11 +334,12 @@ Vec radiance(const auto &objects, const Ray &r) {
   for (;;) {
     auto [found, best] = traverse(objects, ray);
     if (!found) { return radianceSum + tp * sky_radiance(ray); }  
-    if (curDepth >= 32 || best.m_mat == Material::LIGHT) return radianceSum + tp * best.e;
+    if (curDepth >= 32 || best.m_mat == Material::LIGHT) 
+      return radianceSum + tp * best.e; // max depth or hit light
 
     radianceSum += tp * best.e; // accumulate emitted radiance
 
-    Vec nl = glm::dot(best.n, ray.m_v) < 0 ? best.n : -best.n;
+    Vec nl = glm::dot(best.n, ray.m_v) < 0 ? best.n : -best.n; // oriented normal
 
     Vec f;
     double pdf;
@@ -351,8 +365,9 @@ int main(int argc, char *argv[]){
   double div{1./samples};
 
   std::vector<std::unique_ptr<Hitable>> objects;
-  //double aspect = create_spheres(10, objects);
-  double aspect = create_cornell(0, objects);;
+  double aspect;
+  if( 1 ) { aspect = create_spheres(25, objects); } 
+  else { aspect = create_cornell(0, objects); }
 
   int w{1024}, h{(int)(w / aspect)}; // image resolution
   Camera cam(Vec(0,1,0), Vec(0,0,-1), Vec(0,1,0), w, h);
