@@ -68,7 +68,7 @@ struct Camera {
   }
 };
 
-enum Material { DIFF, SPEC, REFR, LIGHT };  // material types, used in radiance()
+enum class Material { DIFF, SPEC, REFR, LIGHT };  // material types, used in radiance()
 
 struct Hit {
   double t;       // distance along ray to hit
@@ -222,30 +222,30 @@ auto create_cornell(int count, auto &objects) {
   const double zShift = -6.5;
   const double xShift = -1.0;
 
-  objects.emplace_back(std::make_unique<Sphere>(10000.0, Vec(0, -10000, 0), Vec(), Vec(0.3, 0.90, 0.25), DIFF));
+  objects.emplace_back(std::make_unique<Sphere>(10000.0, Vec(0, -10000, 0), Vec(), Vec(0.3, 0.90, 0.25), Material::DIFF));
 
   // Cornell box walls
-  objects.push_back(std::make_unique<Quad_YZ>(0, 2, zShift + 0, zShift + 2, xShift + 0, Vec(0), Vec(0.75, 0.25, 0.25), DIFF, false)); // Left wall (faces +X)
-  objects.push_back(std::make_unique<Quad_YZ>(0, 2, zShift + 0, zShift + 2, xShift + 2, Vec(0), Vec(0.25, 0.25, 0.75), DIFF, true));  // Right wall (faces -X)
-  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0, xShift + 2, zShift + 0, zShift + 2, 0, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, false)); // Floor (faces +Y)
-  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0, xShift + 2, zShift + 0, zShift + 2, 2, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, true));  // Ceiling (faces -Y)
-  objects.push_back(std::make_unique<Quad_XY>(xShift + 0, xShift + 2, 0, 2, zShift, Vec(0), Vec(0.75, 0.75, 0.75), DIFF, true)); // Back wall (faces -Z)
-  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0.8, xShift + 1.2, zShift + 0.8, zShift + 1.2, 1.99, Vec(12, 12, 12), Vec(0), LIGHT, true));  // Ceiling (faces -Y)
+  objects.push_back(std::make_unique<Quad_YZ>(0, 2, zShift + 0, zShift + 2, xShift + 0, Vec(0), Vec(0.75, 0.25, 0.25), Material::DIFF, false)); // Left wall (faces +X)
+  objects.push_back(std::make_unique<Quad_YZ>(0, 2, zShift + 0, zShift + 2, xShift + 2, Vec(0), Vec(0.25, 0.25, 0.75), Material::DIFF, true));  // Right wall (faces -X)
+  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0, xShift + 2, zShift + 0, zShift + 2, 0, Vec(0), Vec(0.75, 0.75, 0.75), Material::DIFF, false)); // Floor (faces +Y)
+  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0, xShift + 2, zShift + 0, zShift + 2, 2, Vec(0), Vec(0.75, 0.75, 0.75), Material::DIFF, true));  // Ceiling (faces -Y)
+  objects.push_back(std::make_unique<Quad_XY>(xShift + 0, xShift + 2, 0, 2, zShift, Vec(0), Vec(0.75, 0.75, 0.75), Material::DIFF, true)); // Back wall (faces -Z)
+  objects.push_back(std::make_unique<Quad_XZ>(xShift + 0.8, xShift + 1.2, zShift + 0.8, zShift + 1.2, 1.99, Vec(12, 12, 12), Vec(0), Material::LIGHT, true));  // Ceiling (faces -Y)
   Lights.push_back(objects.back().get());
 
   // Two spheres resting on the floor inside the Cornell box.
-  objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.95, 0.95, 0.95), SPEC));
-  objects.push_back(std::make_unique<Sphere>(0.5, Vec(xShift + 1.35, 0.5, zShift + 1.4), Vec(), Vec(0.95, 0.95, 0.95), DIFF));
+  objects.push_back(std::make_unique<Sphere>(0.35, Vec(xShift + 0.65, 0.35, zShift + 0.6), Vec(), Vec(0.95, 0.95, 0.95), Material::SPEC, 0.4));
+  objects.push_back(std::make_unique<Sphere>(0.5, Vec(xShift + 1.35, 0.5, zShift + 1.4), Vec(), Vec(0.95, 0.95, 0.95), Material::DIFF));
 
   return 3.0 / 3.3; // aspect ratio
 }
 
 auto create_spheres(int count, auto &objects) {
   // Ground and a simple overhead light.
-  objects.emplace_back(std::make_unique<Sphere>(10000.0, Vec(0, -10000, 0), Vec(), Vec(0.3, 0.90, 0.25), DIFF));
-  objects.emplace_back(std::make_unique<Sphere>(1.0, Vec(10, 10, 0), Vec(5, 5, 5), Vec(), LIGHT));
+  objects.emplace_back(std::make_unique<Sphere>(10000.0, Vec(0, -10000, 0), Vec(), Vec(0.3, 0.90, 0.25), Material::DIFF));
+  objects.emplace_back(std::make_unique<Sphere>(1.0, Vec(10, 10, 0), Vec(5, 5, 5), Vec(), Material::LIGHT));
   Lights.push_back(objects.back().get());
-  objects.emplace_back(std::make_unique<Sphere>(0.4, Vec(0, 0.4, -5), Vec(), Vec(0.8, 0.8, 0.8), DIFF));
+  objects.emplace_back(std::make_unique<Sphere>(0.4, Vec(0, 0.4, -5), Vec(), Vec(0.8, 0.8, 0.8), Material::DIFF));
 
   for (int i = 0; i < count; ++i) {
     double x = (rand01() * 2.0 - 1.0) * 5.0;
@@ -255,7 +255,7 @@ auto create_spheres(int count, auto &objects) {
     double radius = (0.15 + t * 1.35) * sizeJitter;
     Vec pos(x, radius, z);
     Vec color(0.2 + rand01() * 0.8, 0.2 + rand01() * 0.8, 0.2 + rand01() * 0.8);
-    objects.emplace_back(std::make_unique<Sphere>(radius, pos, Vec(), color, DIFF));
+    objects.emplace_back(std::make_unique<Sphere>(radius, pos, Vec(), color, Material::DIFF));
   }
 
   double aspect = 16.0 / 9.0;
@@ -310,12 +310,12 @@ Vec radiance(const auto &objects, const Ray &r) {
   for (;;) {
     auto [found, best] = traverse(objects, ray);
     if (!found) { return radianceSum + tp * sky_radiance(ray); }  
-    if (curDepth >= 32 || best.m_mat == LIGHT) return radianceSum + tp * best.e;
+    if (curDepth >= 32 || best.m_mat == Material::LIGHT) return radianceSum + tp * best.e;
 
     radianceSum += tp * best.e; // accumulate emitted radiance
 
     Vec nl = glm::dot(best.n, ray.m_v) < 0 ? best.n : -best.n;
-    if (best.m_mat == SPEC) {
+    if (best.m_mat == Material::SPEC) {
       ray = sample_specular_ray(best.p, nl, ray.m_v, best.m_roughness);
     } else {
       ray = sample_diffuse_ray(best.p, nl);
