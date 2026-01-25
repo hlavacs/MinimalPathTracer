@@ -10,6 +10,16 @@
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "preLaunchTask": "CMake: build (Debug)"
+    },
+    {
+      "name": "Release minimal_pt",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/Release/minimal_pt.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "preLaunchTask": "CMake: build (Debug)"
     }
   ]
 }

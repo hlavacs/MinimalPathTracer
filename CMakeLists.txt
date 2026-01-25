@@ -12,9 +12,16 @@ FetchContent_Declare(
   GIT_TAG 0.9.9.8
 )
 FetchContent_MakeAvailable(glm)
+FetchContent_Declare(
+  stb
+  GIT_REPOSITORY https://github.com/nothings/stb.git
+  GIT_TAG master
+)
+FetchContent_MakeAvailable(stb)
 
 add_executable(minimal_pt minimal_pt.cpp)
 target_link_libraries(minimal_pt PRIVATE glm::glm)
+target_include_directories(minimal_pt PRIVATE ${stb_SOURCE_DIR})
 
 set_target_properties(minimal_pt PROPERTIES
   CXX_STANDARD 20

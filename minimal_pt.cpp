@@ -1,4 +1,5 @@
 #define _USE_MATH_DEFINES
+
 #include <math.h>   //
 #include <random>
 #include <stdlib.h> // 
@@ -9,6 +10,9 @@
 #include <functional>
 #include <omp.h>
 #include <glm/glm.hpp>
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 using Vec = glm::dvec3; 
 
@@ -32,6 +36,7 @@ inline double halton(int index, int base) {
 
 inline double clamp(double x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 inline Vec clamp(const Vec &v) { return Vec(clamp(v.x), clamp(v.y), clamp(v.z)); }
+
 
 struct Ray { 
   Vec m_o, m_v;
@@ -362,7 +367,8 @@ Vec radiance(const auto &objects, const Ray &r) {
 
 int main(int argc, char *argv[]){
   int scene = argc>=2 ? atoi(argv[1]) : 0; // # scene
-  int samples = argc==3 ? atoi(argv[2]) : 128; // # samples
+  int samples = argc>=3 ? atoi(argv[2]) : 64; // # samples
+  int width = argc>=4 ? atoi(argv[3]) : 800; // # width
   double div{1./samples};
 
   std::vector<std::unique_ptr<Hitable>> objects;
@@ -370,7 +376,7 @@ int main(int argc, char *argv[]){
   if( scene == 0 ) { aspect = create_spheres(25, objects); } 
   else { aspect = create_cornell(0, objects); }
 
-  int w{1920}, h{(int)(w / aspect)}; // image resolution
+  int w{width}, h{(int)(w / aspect)}; // image resolution
   Camera cam(Vec(0,1,0), Vec(0,0,-1), Vec(0,1,0), w, h);
   std::vector<Vec> colors;
   colors.resize(w * h);
@@ -390,12 +396,21 @@ int main(int argc, char *argv[]){
         ray = cam.ray(x + halton(hIndex, 2), y + halton(hIndex, 3)); // Generate camera ray
         sum = sum + radiance(objects, ray); // Trace ray and accumulate radiance
       }
-      colors[x + y * w] = clamp(sum * div) * 255.0;
+
+      colors[x + y * w] = sum * div;  // Average over samples, raw radiance
     }
   }
 
-  std::ofstream f("image.ppm");         // Write image to PPM file.
-  f << "P3\n" << w << " " << h << "\n" << 255 << "\n";
-  for (int i=0; i<w*h; i++)
-    f << int(colors[i].x) << " " << int(colors[i].y) << " " << int(colors[i].z) << " ";
+  std::vector<unsigned char> pixels;
+  pixels.resize(w * h * 3);
+  for( int i=0; i<w*h; i++ ) {
+
+    Vec color = clamp(colors[i]) * 255.0;
+    pixels[i*3+0] = static_cast<unsigned char>(color.x);
+    pixels[i*3+1] = static_cast<unsigned char>(color.y);
+    pixels[i*3+2] = static_cast<unsigned char>(color.z);
+  }
+  stbi_write_png("image.png", w, h, 3, pixels.data(), sizeof(unsigned char)*3*w );
+
+
 }
